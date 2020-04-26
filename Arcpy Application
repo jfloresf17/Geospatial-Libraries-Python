@@ -1,0 +1,95 @@
+## Data Preprocessing
+
+### Primary Data <a name="data"></a>
+
+Based on definition of our problem,we will need a shapefile file of the Peruvian districts where are the  Lima Metropolitan districts, this will provide us with a relevant geographic information that is available at the following [link](https://drive.google.com/file/d/19NlT3dNlPO_ismoXg55rmZdIVT7K4RxY/view) provided by the [National Geographic Institute of Peru](https://www.geogpsperu.com/2018/02/limite-distrital-politico-shapefile-ign.html).
+
+### Data Reduction
+
+Data downloaded is a spatial data file where is found the Peruvian districts geometry, therefore, we only select the Lima Metropolitan districts of our primary source  (IGN) through ArcGIS site packages in Python like arcgis and arcpy.<br>
+
+# When working with geospatial data, must define your workspaces
+
+    ## Libraries used
+import arcpy
+from arcpy import env
+
+    ## Define your workspace
+workspace = r"C:\Users\jf_ph\Documents\SATELLITE IMAGES\SHAPEFILE"
+outworkspace = r"C:\Users\jf_ph\Documents\SATELLITE IMAGES\RESULTS\feature_class"
+
+    ## Define Output Coordinate System 
+env.outputCoordinateSystem = arcpy.SpatialReference("WGS 1984")
+
+# We select only features belong to Lima Metropolitan districts.
+import os
+
+    ## Parameters for this tool
+inFeatures = os.path.join(workspace, "DISTRITOS.shp")
+outLocation = workspace
+outFeatureClass = "lima_callao.shp"
+        ### Expression to select these features ###
+where_clause =""""PROVINCIA" = 'LIMA' or "PROVINCIA" = 'CALLAO'"""
+
+    ## Execute FeatureClassToFeatureClass tool
+arcpy.FeatureClassToFeatureClass_conversion(inFeatures, outLocation, 
+                                 outFeatureClass, where_clause)
+
+### Data Collecting
+
+Once selected the districts, we need a sample of restaurants to analyze, for this reason we will create uniform fishnet points over Lima Metropolitan area, in total were 4,964 points according to [Rate Limits in Foursquare](https://developer.foursquare.com/docs/places-api/rate-limits/).
+
+These points will feed the Foursquare API that  will recommend up to 50 restaurants for each fishnet point in a assigned radius  of 1250 meters to completely cover the Lima Metropolitan area.
+
+# We create uniform fishnet points over Lima Metropolitan area
+
+    ## Describes the feature extent
+input_feature = os.path.join(workspace, "lima_callao.shp")
+obj = arcpy.Describe(input_feature)
+obj.extent
+
+    ## Parameters
+output_feature =  os.path.join(outworkspace, "fishnet.shp")
+cellSizeWidth = '0'
+cellSizeHeight = '0'
+numRows =  '108'
+numColumns = '109'
+labels = 'LABELS' # To obtain the fishnet label points
+templateExtent = ' '
+geometryType = 'POLYGON'
+        ### Defining the fishnet extent from our feature extent ###
+originCoordinate = str(obj.extent.XMin) + ' ' + str(obj.extent.YMin) 
+yAxisCoordinate = str(obj.extent.XMin) + ' ' + str(obj.extent.YMin + 10)
+oppositeCoorner = str(obj.extent.XMax) + ' ' + str(obj.extent.YMax)
+
+    ## Execute Create Fishnet tool with ordered parameters
+arcpy.CreateFishnet_management(output_feature, originCoordinate, yAxisCoordinate,
+                               cellSizeWidth, cellSizeHeight, numRows, numColumns,
+                               oppositeCoorner, labels, templateExtent, geometryType)
+
+# The points included in the Lima Metropolitan area are spatially joined with the attributes of this feature.
+
+    ##Parameters
+        ### fishnet_label is the feature of points from Create Fishnet ##
+targetFeatures = os.path.join(outworkspace, "fishnet_label.shp") 
+joinFeatures = input_feature
+outfc = os.path.join(outworkspace, "fishnet_spatial_join.shp")
+join_operation = 'JOIN_ONE_TO_MANY'
+join_type = 'KEEP_COMMON'
+        ### Joining the different feature attributes ###
+fieldmappings = arcpy.FieldMappings()
+fieldmappings.addTable(targetFeatures)
+fieldmappings.addTable(input_feature)
+
+    ## Execute Spatial Join tool 
+arcpy.SpatialJoin_analysis(targetFeatures, joinFeatures, outfc,
+                           join_operation, join_type, fieldmappings)
+
+# Accessing to  attribute tables of fishnet points and Lima Metropolitan districts
+from arcgis.features import GeoAccessor, GeoSeriesAccessor
+
+# Accessing to attribute tables only with the required columns: Districts and geometry shape
+fishnet = GeoAccessor.from_featureclass(outfc)[['DISTRITO','SHAPE']]
+lima_callao = GeoAccessor.from_featureclass(input_feature)[['DISTRITO','SHAPE']]
+
+fishnet.head()
